@@ -1,16 +1,18 @@
-name: Build Android Only
+name: Build Android Only (Fixed)
 
 on:
-  workflow_dispatch: # 支持手动点击运行
+  workflow_dispatch: # 允许你手动点击 "Run workflow"
 
 jobs:
   build-android:
-    runs-on: ubuntu-latest # 使用 Linux 环境编译 Android，速度最快
+    runs-on: ubuntu-latest
     steps:
+      # 1. 拉取代码
       - uses: actions/checkout@v4
         with:
-          ref: dev # 强制签出 dev 分支
+          ref: dev # 强制切换到 dev 分支
 
+      # 2. 准备 Java 环境
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -18,27 +20,42 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
+      # 3. 准备 Flutter 环境
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.38.x' # 保持与原项目一致
+          flutter-version: '3.38.x'
           cache: true
 
-      - name: Get Dependencies
+      # 4. 关键修复：创建伪造的 key.properties 文件
+      # 这样做是为了防止 Android 项目中的 build.gradle.kts 找不到变量而崩溃
+      - name: Create Dummy Key Properties
+        run: |
+          mkdir -p simple_live_app/android
+          touch simple_live_app/android/debug.jks
+          echo "storeFile=debug.jks" > simple_live_app/android/key.properties
+          echo "storePassword=password123" >> simple_live_app/android/key.properties
+          echo "keyPassword=password123" >> simple_live_app/android/key.properties
+          echo "keyAlias=debug" >> simple_live_app/android/key.properties
+
+      # 5. 获取项目依赖
+      - name: Restore Packages
         run: |
           cd simple_live_app
           flutter pub get
 
-      - name: Build APK (Unsigned)
+      # 6. 执行编译
+      # 使用 --no-codesign 或 release 模式生成通用 APK
+      - name: Build APK
         run: |
           cd simple_live_app
-          # 编译 release 版 APK，不指定 keystore 默认生成 unsiged 包
           flutter build apk --release --split-per-abi
 
-      - name: Upload APK Artifact
+      # 7. 上传编译产物
+      - name: Upload APK to Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: android-apk
+          name: simple-live-apks
           path: |
             simple_live_app/build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
             simple_live_app/build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
