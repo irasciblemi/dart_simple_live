@@ -1,66 +1,73 @@
-name: Build Android (Final Compatibility Fix)
+name: Build Android APK (Clean & Stable)
 
 on:
-  workflow_dispatch: 
+  workflow_dispatch:
 
 jobs:
-  build-android:
+  build:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      # 1. 拉代码
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           ref: dev
 
+      # 2. Java 环境
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
-          cache: 'gradle'
+          cache: gradle
 
+      # 3. Flutter 环境
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.38.x'
           cache: true
 
-      # 关键步骤：不仅创建文件，还强制修改编译脚本绕过校验
-      - name: Hard Patch Android Config
+      # 4. 创建标准 debug keystore（关键）
+      - name: Create Debug Keystore
         run: |
           cd simple_live_app/android
-          
-          # 1. 创建一个合法的 debug keystore 副本，骗过“文件必须存在”的检查
-          cp $JAVA_HOME/lib/security/cacerts ./debug.jks
-          
-          # 2. 生成满足所有可能变量名的 key.properties
-          # 我们把常见的 Key 全写进去，确保 Gradle 无论读哪个都不会拿到 null
-          echo "storeFile=debug.jks" > key.properties
-          echo "storePassword=changeit" >> key.properties
-          echo "keyPassword=changeit" >> key.properties
-          echo "keyAlias=debian" >> key.properties
-          echo "PASSWORD=changeit" >> key.properties
-          echo "ALIAS=debian" >> key.properties
-          
-          # 3. 强行把 build.gradle.kts 里报错的那几行逻辑给“阉割”掉
-          # 我们直接搜索包含 "as String" 的行，把它们替换为安全的默认值
-          sed -i 's/as String/"debug"/g' app/build.gradle.kts || true
-          
-          # 4. 强制让 release 使用 debug 的签名配置
-          sed -i 's/signingConfig = signingConfigs.getByName("release")/signingConfig = signingConfigs.getByName("debug")/g' app/build.gradle.kts || true
+          keytool -genkey -v \
+            -keystore debug.keystore \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
 
-      - name: Restore Packages
+      # 5. 创建 key.properties（兼容项目强制读取）
+      - name: Create key.properties
+        run: |
+          cd simple_live_app/android
+          cat > key.properties <<EOF
+          storeFile=debug.keystore
+          storePassword=android
+          keyPassword=android
+          keyAlias=androiddebugkey
+          EOF
+
+      # 6. 获取依赖
+      - name: Flutter Pub Get
         run: |
           cd simple_live_app
           flutter pub get
 
-      - name: Build APK
+      # 7. 构建 Debug APK（最稳）
+      - name: Build Debug APK
         run: |
           cd simple_live_app
-          # 既然 release 签名难搞，我们直接编译调试版 APK
-          # 调试版 APK 功能是一模一样的，且自带签名，安装最方便
           flutter build apk --debug
 
-      - name: Upload APK to Artifacts
+      # 8. 上传
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: simple-live-debug-apk
