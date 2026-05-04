@@ -37,7 +37,7 @@ jobs:
         run: |
           cd simple_live_app/android
           cat > key.properties <<EOF
-          storeFile=release.keystore
+          storeFile=../release.keystore
           storePassword=${{ secrets.KEYSTORE_PASSWORD }}
           keyPassword=${{ secrets.KEY_PASSWORD }}
           keyAlias=${{ secrets.KEY_ALIAS }}
